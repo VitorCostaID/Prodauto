@@ -15,12 +15,15 @@ python-multipart==0.0.9
 # Validation & settings
 pydantic==2.8.2
 pydantic-settings==2.5.2
+email-validator==2.3.0
 
 # HTTP client (for optional async scraping calls)
 httpx==0.27.2
 
 # Scraping (keep aligned with your scraper.py deps)
-beautifulsoup4==4.12.3
+beautifulsoup4==4.12.
+playwright==1.60.0
+seleniumbase==4.50.1
 requests==2.32.3
 
 # Dev / test

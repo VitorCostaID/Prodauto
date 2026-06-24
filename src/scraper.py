@@ -1,10 +1,9 @@
 import asyncio
 from playwright.async_api import async_playwright
-from seleniumbase import sb_cdp
+#from seleniumbase import sb_cdp
+from seleniumbase import cdp_driver
 from bs4 import BeautifulSoup
 import subprocess
-import time
-
 
 REFS = { 
     # Index Positions mapped to variables inside get_results():
@@ -56,6 +55,31 @@ REFS = {
         "div[data-testid='product-description']",    # [8] Description (Example)
     ]
 }
+
+CAPTCHA_SELECTORS = [
+        'iframe[src*="challenges.cloudflare.com"]',
+        'iframe[title*="reCAPTCHA"]',
+        '#challenge-running',
+        '#challenge-stage'
+    ]
+
+async def captcha_solver(driver, page, link, selector):
+    # --- CHECAGEM DE CAPTCHA ---
+    for captcha in CAPTCHA_SELECTORS:
+        if await page.locator(captcha).is_visible():
+            print(f" 🛑 [Bloqueio] CAPTCHA detectado em {link}. Interrompendo raspagem.")
+            await driver.solve_captcha()
+            await page.wait_for_timeout(2000)
+            
+    # --- CHECAGEM VIA TIMEOUT (Caso o captcha mude o seletor) ---
+    try:
+        # Tenta esperar pela barra de pesquisa por no máximo 8 segundos
+        await page.wait_for_selector(selector, timeout=8000)
+    except Exception:
+        print(f" 🛑 [Erro/Captcha] Elemento '{selector}' não carregou. Página possivelmente bloqueada.")
+        await driver.solve_captcha()
+        await page.wait_for_timeout(2000)
+
 async def fetch_deep_data(context, product_details: dict, references: list, semaphore: asyncio.Semaphore):
     """
     Helper function that visits the product page to grab descriptions and reviews.
@@ -69,9 +93,8 @@ async def fetch_deep_data(context, product_details: dict, references: list, sema
     async with semaphore:
         page = await context.new_page()
         try:
-            print(f"  ⚡ Deep scraping: {product_details['title'][:30]}...")
             await page.goto(product_details["link"], wait_until="domcontentloaded")
-            await page.wait_for_timeout(1000) # Give React/Next.js time to mount text
+            await page.wait_for_timeout(1000)
             
             html_content = await page.content()
             soup = BeautifulSoup(html_content, 'html.parser')
@@ -79,43 +102,41 @@ async def fetch_deep_data(context, product_details: dict, references: list, sema
             # Extract Description [8]
             desc_el = soup.select_one(references[8])
             product_details["description"] = desc_el.get_text(separator="\n").strip() if desc_el else "Description unavailable"
-
         except Exception as e:
-            print(f"  ❌ Error deep scraping {product_details['title'][:15]}: {e}")
             product_details["description"] = "Failed to extract"
         finally:
             await page.close()
             
         return product_details
 
-async def get_results(page, references: list, search: str, max_results: int):
-    """ Take the link, the search bar, goes to the link, clicks on the bar,
-        Fills the bar search, keyboard confirms, and quickly extracts data.
-    """
+async def enrich_products_data(context, products_list: list, references: list, concurrency_limit: int = 3):
+    """Função separada para buscar individualmente as descrições quando desejar."""
+    semaphore = asyncio.Semaphore(concurrency_limit)
+    tasks = [
+        fetch_deep_data(context, product, references, semaphore)
+        for product in products_list
+    ]
+    return await asyncio.gather(*tasks)
+
+async def get_results(driver, page, references: list, search: str, max_results: int):
     link = references[0]
     search_bar = references[1]
-    await page.goto(link)
+    await page.goto(link, wait_until="domcontentloaded")
+
+    await captcha_solver(driver, page, link, search_bar)
+
     await page.click(search_bar)
     await page.fill(search_bar, search)
     await page.wait_for_timeout(500)
     await page.keyboard.press("Enter")
 
-    # Wait until the search results structure is physically on the page
     await page.wait_for_selector(references[2])
-    
-    # Grab raw HTML 
     html_content = await page.content()
     
-    # Extract the parent context before doing anything else
-    context = page.context
-    
-    # Parse the HTML with the built-in parser
     soup = BeautifulSoup(html_content, 'html.parser')
     product_cards = soup.select(references[2])[:max_results]
     
-    print(f"Products list found. Total elements to parse: {len(product_cards)}")
     products_data_list = []
-    
     for card in product_cards:
         title_el = card.select_one(references[3])
         rating_el = card.select_one(references[4])
@@ -139,20 +160,8 @@ async def get_results(page, references: list, search: str, max_results: int):
             "image": img_el.get('src') if img_el else "No image available"
         }
         products_data_list.append(product_details)
-
-    # 3. Fire off the Deep Scrapers concurrently (Max 3 at a time)
-    semaphore = asyncio.Semaphore(3)
-
-    # This creates a list of background tasks using the extracted browser context
-    tasks = [
-        fetch_deep_data(context, product, references, semaphore)
-        for product in products_data_list
-    ]
-    
-    # `asyncio.gather` runs them all at once and waits for them to finish
-    fully_enriched_products = await asyncio.gather(*tasks)
         
-    return fully_enriched_products
+    return products_data_list
 
 async def run_scraper(
     query: str,
@@ -164,19 +173,10 @@ async def run_scraper(
     Returns a flat list of product dicts, each with:
         marketplace, title, price (float, BRL), url
     """
-    chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 
-    subprocess.Popen([
-        chrome_path,
-        "--remote-debugging-port=9222",
-        "--user-data-dir=C:\\chrome-debug-profile",
-        "--no-first-run",
-        "--no-default-browser-check",
-    ])
-
-    time.sleep(2)  # give Chrome time to start before Playwright connects
-    endpoint_url = "http://localhost:9222"
-
+    driver = await cdp_driver.start_async()
+    endpoint_url = driver.get_endpoint_url()
+    
     all_results = []
 
     try:
@@ -192,11 +192,11 @@ async def run_scraper(
 
                 link = REFS[mp_key]
                 
-                # Open a clean tab profile container for each distinct marketplace
-                page = await browser.contexts[0].new_page()
+                # Gets the first tab
+                page = browser.contexts[0].pages[0]
 
                 try:
-                    results = await get_results(page, link, query, max_results)
+                    results = await get_results(driver, page, link, query, max_results)
                     print(f"  [{mp_key}] Collected {len(results)} valid listings")
                     all_results.extend(results)
                 except Exception as e:
