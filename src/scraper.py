@@ -108,6 +108,8 @@ async def fetch_deep_data(context, product_details: dict, references: list, sema
             await page.close()
             
         return product_details
+    
+### ============ ESTEIRA REVIEWS + COMMENTS ============ ###
 
 async def enrich_products_data(context, products_list: list, references: list, concurrency_limit: int = 3):
     """Função separada para buscar individualmente as descrições quando desejar."""
@@ -117,6 +119,8 @@ async def enrich_products_data(context, products_list: list, references: list, c
         for product in products_list
     ]
     return await asyncio.gather(*tasks)
+
+### ============ GET PRODUCTS INFOS ============ ###
 
 async def get_results(driver, page, references: list, search: str, max_results: int):
     link = references[0]
@@ -163,25 +167,32 @@ async def get_results(driver, page, references: list, search: str, max_results: 
         
     return products_data_list
 
+### ============ MAIN SCRAPER ============ ###
+
 async def run_scraper(
     query: str,
     marketplaces: list[str],
     max_results: int = 10,
 ) -> list[dict]:
-    """
-    Scrape the given marketplaces for `query`.
-    Returns a flat list of product dicts, each with:
-        marketplace, title, price (float, BRL), url
-    """
-
-    driver = await cdp_driver.start_async()
-    endpoint_url = driver.get_endpoint_url()
-    
     all_results = []
 
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.connect_over_cdp(endpoint_url)
+            browser = await p.chromium.launch(
+                headless=False,  # 100% oculto e consome o mínimo de RAM
+                args=[
+                    "--headless=new " # Desativar isso aqui mantém o browser com janela visível
+                    "--disable-gpu",
+                    "--blink-settings=imagesEnabled=false", # Bloqueia imagens para poupar memória
+                    "--disable-blink-features=AutomationControlled", # Esconde que é um robô
+                ]
+            )
+            
+            # Cria um contexto fingindo ser um navegador Windows normal
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                viewport={"width": 1920, "height": 1080}
+            )
 
             # Test if the marketplace is at dictionary
             for mp in marketplaces:
@@ -193,10 +204,10 @@ async def run_scraper(
                 link = REFS[mp_key]
                 
                 # Gets the first tab
-                page = browser.contexts[0].pages[0]
+                page = await context.new_page()
 
                 try:
-                    results = await get_results(driver, page, link, query, max_results)
+                    results = await get_results(context, page, link, query, max_results)
                     print(f"  [{mp_key}] Collected {len(results)} valid listings")
                     all_results.extend(results)
                 except Exception as e:
@@ -211,31 +222,3 @@ async def run_scraper(
         subprocess.run(["taskkill", "/f", "/im", "chrome.exe"])
 
     return all_results
-
-
-# ---------------------------------------------------------------------------
-# Quick test
-# ---------------------------------------------------------------------------
-
-"""
-listed = ["mercadolivre", "amazon", "magalu"]
-check = [True, False, False]
-marketplaces = []
-
-for index, value in enumerate(check):
-    if value == True:
-        marketplaces.append(listed[index])
-
-if __name__ == "__main__":
-    query = "Samsung Galaxy A15"
-    print(f"\nSearching for: '{query}'")
-    print(f"Marketplaces : {', '.join(marketplaces)}\n")
-
-    final_data = asyncio.run(run_scraper(query, marketplaces, max_results=5))
-
-    # Print the final enriched payload
-    for item in final_data:
-        print(f"\nTitle: {item['title']}")
-        print(f"Price: {item['price']}")
-        print(f"Description Snippet: {item['description'][:100]}...")
-        print(f"Total Reviews Pulled: {len(item['reviews'])}")"""
