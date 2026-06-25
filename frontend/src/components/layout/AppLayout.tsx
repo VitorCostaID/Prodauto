@@ -3,7 +3,7 @@
  * Navigation: Pesquisas | Produto Perfeito | Conta
  */
 import { NavLink } from 'react-router-dom'
-import { Search, Sparkles, User } from 'lucide-react'
+import { Search, Sparkles, User, Info } from 'lucide-react'
 import { clsx } from 'clsx'
 
 interface Props {
@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { to: '/',                 label: 'Pesquisas',       Icon: Search    },
   { to: '/produto-perfeito', label: 'Produto Perfeito', Icon: Sparkles  },
   { to: '/conta',            label: 'Conta',           Icon: User      },
+  { to: '/sobre',            label: 'Sobre',           Icon: Info      },
 ]
 
 export default function AppLayout({ children }: Props) {
@@ -23,7 +24,7 @@ export default function AppLayout({ children }: Props) {
       <header className="hidden md:flex bg-white border-b border-gray-200 sticky top-0 z-20">
         <div className="max-w-6xl mx-auto w-full px-6 h-14 flex items-center justify-between">
           <span className="font-bold text-brand-600 text-lg tracking-tight">
-            PrecoBOT
+            Prodauto
           </span>
           <nav className="flex items-center gap-1">
             {NAV_ITEMS.map(({ to, label, Icon }) => (

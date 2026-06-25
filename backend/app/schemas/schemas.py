@@ -161,6 +161,10 @@ class PerfectProductRequest(BaseModel):
     costs: Optional[MarketplaceCosts] = None
     purchase_price: Optional[float] = None
     reviews_per_star: int = Field(default=1, ge=1, le=MAX_REVIEWS_PER_STAR)
+    price_mode: str = Field(default="iniciante",
+        description="Modo de precificação: 'iniciante', 'intermediario', 'avancado'")
+    custom_markup: float = Field(default=20.0, ge=0,
+        description="Markup personalizado (%) — usado apenas no modo 'avancado'")
 
 
 class MarketplaceAnalysis(BaseModel):

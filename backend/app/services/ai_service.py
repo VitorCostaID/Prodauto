@@ -2,8 +2,7 @@
 AI integration service.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  TO ACTIVATE AI: open backend/app/core/constants.py
-  and fill in:
+  TO ACTIVATE AI: add to the .env file:
     AI_API_KEY  — your API key
     AI_MODEL    — the model name (ex: "gpt-4o")
     AI_BASE_URL — the provider base URL

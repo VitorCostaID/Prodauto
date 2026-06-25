@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { Search, X, ExternalLink, TrendingUp, Sparkles, Info, ArrowUpDown } from 'lucide-react'
+import { Search, X, ExternalLink, TrendingUp, Sparkles, Info, ArrowUpDown, EyeOff, Eye } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { clsx } from 'clsx'
 import { api } from '@/lib/api'
@@ -16,7 +16,7 @@ const formatBRL = (v: number | null) =>
 
 export default function SearchPage() {
   const navigate = useNavigate()
-  const { setResponse, removeResult, visibleResults, lastResponse, setPurchasePrice } =
+  const { setResponse, removeResult, visibleResults, lastResponse, setPurchasePrice, hiddenResults, hideResult, unhideResult } =
     useSearchStore()
 
   const [query, setQuery] = useState('')
@@ -248,6 +248,7 @@ export default function SearchPage() {
             <div className="lg:col-span-2 space-y-3">
               <p className="text-sm text-gray-500">
                 {visibleResults.length} resultado(s) — clique no ✕ para remover
+                {hiddenResults.length > 0 && ` · ${hiddenResults.length} oculto(s)`}
               </p>
 
               {(() => {
@@ -263,7 +264,13 @@ export default function SearchPage() {
                   return 0
                 })
                 return sorted.map((item) => (
-                  <ResultCard key={item.id} item={item} onRemove={removeResult} />
+                  <ResultCard
+                    key={item.id}
+                    item={item}
+                    onRemove={removeResult}
+                    hidden={hiddenResults.includes(item.id)}
+                    onToggleHide={() => hiddenResults.includes(item.id) ? unhideResult(item.id) : hideResult(item.id)}
+                  />
                 ))
               })()}
 
@@ -295,7 +302,6 @@ export default function SearchPage() {
                   <StatRow label="Média"     value={formatBRL(analysis.mean_price)} />
                   <StatRow label="Mediana"   value={formatBRL(analysis.median_price)} />
                   <StatRow label="Média IQR" value={formatBRL(analysis.iqr_mean)} highlight />
-                  <StatRow label="Piso competitivo" value={formatBRL(analysis.competitive_floor)} />
 
                   <hr className="border-gray-100" />
 
@@ -342,14 +348,18 @@ export default function SearchPage() {
 }
 
 function ResultCard({
-  item, onRemove,
+  item, onRemove, hidden, onToggleHide,
 }: {
   item: ProductResult
   onRemove: (id: number) => void
+  hidden: boolean
+  onToggleHide: () => void
 }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4 flex gap-4
-                    items-start shadow-sm hover:shadow-md transition-shadow">
+    <div className={clsx(
+      'bg-white rounded-xl border p-4 flex gap-4 items-start shadow-sm hover:shadow-md transition-shadow',
+      hidden ? 'border-amber-200 opacity-60' : 'border-gray-200'
+    )}>
       {item.image_url && (
         <img
           src={item.image_url}
@@ -358,7 +368,14 @@ function ResultCard({
         />
       )}
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-900 line-clamp-2">{item.title}</p>
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium text-gray-900 line-clamp-2">{item.title}</p>
+          {hidden && (
+            <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium flex-shrink-0">
+              OCULTO
+            </span>
+          )}
+        </div>
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
           <span className="text-brand-600 font-bold text-sm">
             {item.price_brl != null
@@ -379,6 +396,16 @@ function ResultCard({
         >
           <ExternalLink size={14} />
         </a>
+        <button
+          onClick={onToggleHide}
+          className={clsx(
+            'transition-colors',
+            hidden ? 'text-amber-500 hover:text-amber-600' : 'text-gray-300 hover:text-amber-500'
+          )}
+          title={hidden ? 'Mostrar produto' : 'Ocultar produto (não será usado no Produto Perfeito)'}
+        >
+          {hidden ? <Eye size={14} /> : <EyeOff size={14} />}
+        </button>
         <button
           onClick={() => onRemove(item.id)}
           className="text-gray-300 hover:text-red-500 transition-colors"

@@ -24,7 +24,7 @@ export default function LoginPage() {
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
       <div className="bg-white w-full max-w-sm rounded-2xl shadow-sm border border-gray-200 p-8 space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-brand-600">PrecoBOT</h1>
+          <h1 className="text-2xl font-bold text-brand-600">Prodauto</h1>
           <p className="text-sm text-gray-500 mt-1">Análise de preços em marketplaces brasileiros</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">

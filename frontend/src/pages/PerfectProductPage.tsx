@@ -4,6 +4,7 @@ import { Sparkles, ChevronDown, ChevronUp, AlertCircle, CheckCircle, Info, Image
 import { clsx } from 'clsx'
 import { api } from '@/lib/api'
 import { useSearchStore } from '@/store/searchStore'
+import type { PriceMode } from '@/store/searchStore'
 import { useCostsStore } from '@/store/costsStore'
 import type { PerfectProductResponse, MarketplaceAnalysis } from '@/lib/types'
 import AppLayout from '@/components/layout/AppLayout'
@@ -13,8 +14,29 @@ import CostsPanel from '@/components/ui/CostsPanel'
 const formatBRL = (v: number | null | undefined) =>
   v == null ? '—' : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
+const PRICE_MODES: { key: PriceMode; label: string; desc: string }[] = [
+  {
+    key: 'iniciante',
+    label: 'Iniciante',
+    desc: 'Lucro mínimo (0%). Ideal para quem está começando e quer validar o mercado com o menor preço viável. Se o preço médio ficar 2% acima ou abaixo do custo, o markup é ajustado para 5%.',
+  },
+  {
+    key: 'intermediario',
+    label: 'Intermediário',
+    desc: 'Preço médio de mercado (IQR). Posicionamento equilibrado entre competitividade e margem, recomendado para vendedores com alguma experiência.',
+  },
+  {
+    key: 'avancado',
+    label: 'Avançado',
+    desc: 'Você define o markup desejado sobre os custos. Indicado para quem já domina o mercado e quer maximizar a margem de lucro.',
+  },
+]
+
 export default function PerfectProductPage() {
-  const { visibleResults, lastResponse, purchasePrice, perfectProductResult, setPerfectProductResult } = useSearchStore()
+  const {
+    visibleResults, lastResponse, perfectProductResult,
+    setPerfectProductResult, hiddenResults, pricingConfig, setPricingConfig,
+  } = useSearchStore()
   const { getCosts } = useCostsStore()
   const [result, setResult] = useState<PerfectProductResponse | null>(perfectProductResult)
   const [costsOpen, setCostsOpen] = useState(false)
@@ -41,22 +63,24 @@ export default function PerfectProductPage() {
 
   const generateMutation = useMutation({
     mutationFn: async () => {
-      // Use costs from the first marketplace as primary
       const primaryMarket = marketplaces[0] ?? 'mercadolivre'
       const costs = getCosts(primaryMarket)
+      const activeResults = visibleResults.filter(r => !hiddenResults.includes(r.id))
 
       const { data } = await api.post<PerfectProductResponse>('/produto-perfeito/', {
         query,
         marketplace: primaryMarket,
-        results: visibleResults,
+        results: activeResults,
         costs,
-        purchase_price: purchasePrice,
+        purchase_price: pricingConfig.purchasePrice,
         reviews_per_star: reviewsPerStar,
+        price_mode: pricingConfig.priceMode,
+        custom_markup: pricingConfig.customMarkup,
       })
       return data
     },
     onSuccess: (data) => {
-      const ids = visibleResults.map(r => r.id).sort().join(',')
+      const ids = visibleResults.filter(r => !hiddenResults.includes(r.id)).map(r => r.id).sort().join(',')
       const cached = { ...data, _resultIds: ids } as PerfectProductResponse & { _resultIds: string }
       setResult(cached)
       setPerfectProductResult(cached)
@@ -80,6 +104,8 @@ export default function PerfectProductPage() {
   })
 
   const hasResults = visibleResults.length > 0
+  const activeResults = visibleResults.filter(r => !hiddenResults.includes(r.id))
+  const hasActiveResults = activeResults.length > 0
 
   return (
     <AppLayout>
@@ -111,6 +137,16 @@ export default function PerfectProductPage() {
           </div>
         )}
 
+        {/* Hidden notice */}
+        {hasResults && hiddenResults.length > 0 && (
+          <div className="bg-amber-50 border border-amber-100 rounded-lg px-4 py-2 flex items-center gap-2">
+            <Info size={14} className="text-amber-500 flex-shrink-0" />
+            <p className="text-xs text-amber-700">
+              {hiddenResults.length} produto(s) oculto(s) não serão incluídos na análise.
+            </p>
+          </div>
+        )}
+
         {/* Current search info */}
         {hasResults && (
           <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-4 items-center justify-between">
@@ -118,13 +154,78 @@ export default function PerfectProductPage() {
               <p className="text-xs text-gray-400">Busca atual</p>
               <p className="font-semibold text-gray-800">"{query}"</p>
               <p className="text-xs text-gray-500 mt-0.5">
-                {visibleResults.length} produto(s) · {marketplaces.join(', ')}
+                {activeResults.length} produto(s) ativo(s) · {marketplaces.join(', ')}
               </p>
             </div>
-            {purchasePrice != null && (
+            {pricingConfig.purchasePrice != null && (
               <div className="text-right">
                 <p className="text-xs text-gray-400">Preço de compra</p>
-                <p className="font-semibold text-gray-800">{formatBRL(purchasePrice)}</p>
+                <p className="font-semibold text-gray-800">{formatBRL(pricingConfig.purchasePrice)}</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Global pricing config — outside marketplace costs */}
+        {hasResults && (
+          <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+            <h2 className="text-sm font-semibold text-gray-700">Configuração de Preço</h2>
+
+            {/* Purchase price */}
+            <div className="flex items-center gap-3">
+              <label className="text-xs text-gray-600 whitespace-nowrap">Preço de compra</label>
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">R$</span>
+                <input
+                  type="number" min={0} step={0.01}
+                  placeholder="0,00"
+                  value={pricingConfig.purchasePrice ?? ''}
+                  onChange={(e) => setPricingConfig({ purchasePrice: e.target.value ? parseFloat(e.target.value) : null })}
+                  className="w-32 pl-8 pr-2 py-1.5 text-sm border border-gray-300 rounded-lg
+                             focus:outline-none focus:ring-2 focus:ring-brand-400"
+                />
+              </div>
+            </div>
+
+            {/* Price mode selector */}
+            <div className="space-y-2">
+              <label className="text-xs text-gray-600 font-medium">Modo de precificação</label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {PRICE_MODES.map((mode) => (
+                  <button
+                    key={mode.key}
+                    onClick={() => setPricingConfig({ priceMode: mode.key })}
+                    className={clsx(
+                      'text-left p-3 rounded-xl border-2 transition-all',
+                      pricingConfig.priceMode === mode.key
+                        ? 'border-brand-500 bg-brand-50'
+                        : 'border-gray-200 hover:border-gray-300 bg-white'
+                    )}
+                  >
+                    <p className={clsx(
+                      'text-xs font-semibold',
+                      pricingConfig.priceMode === mode.key ? 'text-brand-700' : 'text-gray-700'
+                    )}>
+                      {mode.label}
+                    </p>
+                    <p className="text-[10px] text-gray-500 mt-1 leading-relaxed">{mode.desc}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Custom markup for advanced mode */}
+            {pricingConfig.priceMode === 'avancado' && (
+              <div className="flex items-center gap-3">
+                <label className="text-xs text-gray-600 whitespace-nowrap">Markup desejado</label>
+                <input
+                  type="number" min={0} max={500} step={1}
+                  value={pricingConfig.customMarkup}
+                  onChange={(e) => setPricingConfig({ customMarkup: parseFloat(e.target.value) || 0 })}
+                  className="w-20 px-2 py-1.5 text-sm border border-gray-300 rounded-lg text-center
+                             focus:outline-none focus:ring-2 focus:ring-brand-400"
+                />
+                <span className="text-xs text-gray-400">%</span>
               </div>
             )}
           </div>
@@ -176,7 +277,7 @@ export default function PerfectProductPage() {
         {hasResults && !result && (
           <button
             onClick={() => generateMutation.mutate()}
-            disabled={generateMutation.isPending}
+            disabled={generateMutation.isPending || !hasActiveResults}
             className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl
                        bg-gradient-to-r from-brand-600 to-brand-500 text-white font-semibold
                        hover:from-brand-700 hover:to-brand-600 disabled:opacity-50
@@ -218,7 +319,7 @@ export default function PerfectProductPage() {
                   <p className="text-xs text-gray-400 text-center px-4">
                     {result.ai_ready
                       ? 'Geração de imagem não configurada'
-                      : 'Configure a IA em backend/app/core/constants.py para gerar imagens'}
+                      : 'Configure a IA no arquivo .env para gerar imagens'}
                   </p>
                   <button
                     onClick={() => generateImageMutation.mutate()}
@@ -238,7 +339,7 @@ export default function PerfectProductPage() {
             <div className="space-y-4">
               <h2 className="text-sm font-semibold text-gray-700">Análise por Marketplace</h2>
               {result.per_marketplace.map((mp) => (
-                <MarketplaceCard key={mp.marketplace} data={mp} purchasePrice={purchasePrice} />
+                <MarketplaceCard key={mp.marketplace} data={mp} />
               ))}
             </div>
 
@@ -329,10 +430,9 @@ export default function PerfectProductPage() {
 
 
 function MarketplaceCard({
-  data, purchasePrice,
+  data,
 }: {
   data: MarketplaceAnalysis
-  purchasePrice: number | null
 }) {
   const a = data.price_analysis
   const viable = a.is_viable
@@ -376,9 +476,6 @@ function MarketplaceCard({
       {viable === false && a.minimum_viable_price != null && (
         <div className="bg-red-50 rounded-lg px-3 py-2 text-xs text-red-700">
           Preço mínimo para viabilidade: <strong>{formatBRL(a.minimum_viable_price)}</strong>
-          {purchasePrice != null && (
-            <> — Preço de compra máximo recomendado: <strong>{formatBRL(data.viable_purchase_price)}</strong></>
-          )}
         </div>
       )}
     </div>
@@ -396,8 +493,8 @@ function PriceGrid({ analysis: a }: {
     { label: 'Mínimo',           value: a.min_price              },
     { label: 'Máximo',           value: a.max_price              },
     { label: 'Mediana',          value: a.median_price           },
-    { label: 'Piso competitivo', value: a.competitive_floor      },
-    { label: 'Preço sugerido',   value: a.suggested_price_20pct, tooltip: 'Preço sugerido de venda: média dos preços dos produtos encontrados (após remoção de outliers pelo filtro IQR), com markup de 20%.', },
+    { label: 'Piso competitivo', value: a.competitive_floor,     tooltip: 'Preço mínimo viável com lucro zero: custo total (preço de compra + taxas, comissões, frete e custos extras) dividido pelas deduções variáveis do marketplace.' },
+    { label: 'Preço sugerido',   value: a.suggested_price_20pct, tooltip: 'Preço sugerido de venda calculado conforme o modo de precificação selecionado (Iniciante, Intermediário ou Avançado).' },
   ]
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -438,7 +535,7 @@ function AiPlaceholder({ label = 'Conteúdo gerado por IA' }: { label?: string }
         <code className="bg-gray-200 px-1 rounded text-gray-600">AI_API_KEY</code>,{' '}
         <code className="bg-gray-200 px-1 rounded text-gray-600">AI_MODEL</code> e{' '}
         <code className="bg-gray-200 px-1 rounded text-gray-600">AI_BASE_URL</code>{' '}
-        em <code className="bg-gray-200 px-1 rounded text-gray-600">backend/app/core/constants.py</code>.
+        no arquivo <code className="bg-gray-200 px-1 rounded text-gray-600">.env</code>.
       </p>
     </div>
   )
