@@ -1,11 +1,10 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { Sparkles, ChevronDown, ChevronUp, AlertCircle, CheckCircle, Info } from 'lucide-react'
+import { Sparkles, ChevronDown, ChevronUp, AlertCircle, CheckCircle, Info, Image } from 'lucide-react'
 import { clsx } from 'clsx'
 import { api } from '@/lib/api'
 import { useSearchStore } from '@/store/searchStore'
 import { useCostsStore } from '@/store/costsStore'
-import { SUPPORTED_MARKETPLACES } from '@/lib/types'
 import type { PerfectProductResponse, MarketplaceAnalysis } from '@/lib/types'
 import AppLayout from '@/components/layout/AppLayout'
 import MarketplaceBadge from '@/components/ui/MarketplaceBadge'
@@ -15,11 +14,25 @@ const formatBRL = (v: number | null | undefined) =>
   v == null ? '—' : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 export default function PerfectProductPage() {
-  const { visibleResults, lastResponse, purchasePrice } = useSearchStore()
+  const { visibleResults, lastResponse, purchasePrice, perfectProductResult, setPerfectProductResult } = useSearchStore()
   const { getCosts } = useCostsStore()
-  const [result, setResult] = useState<PerfectProductResponse | null>(null)
+  const [result, setResult] = useState<PerfectProductResponse | null>(perfectProductResult)
   const [costsOpen, setCostsOpen] = useState(false)
   const [reviewsPerStar, setReviewsPerStar] = useState(1)
+
+  useEffect(() => {
+    if (perfectProductResult && !result) {
+      setResult(perfectProductResult)
+    }
+    if (perfectProductResult && visibleResults.length > 0) {
+      const currentIds = visibleResults.map(r => r.id).sort().join(',')
+      const cachedIds = perfectProductResult._resultIds ?? ''
+      if (cachedIds && currentIds !== cachedIds) {
+        setResult(null)
+        setPerfectProductResult(null)
+      }
+    }
+  }, [])
 
   const query = lastResponse?.search.query ?? ''
   const marketplaces = lastResponse
@@ -42,7 +55,28 @@ export default function PerfectProductPage() {
       })
       return data
     },
-    onSuccess: setResult,
+    onSuccess: (data) => {
+      const ids = visibleResults.map(r => r.id).sort().join(',')
+      const cached = { ...data, _resultIds: ids } as PerfectProductResponse & { _resultIds: string }
+      setResult(cached)
+      setPerfectProductResult(cached)
+    },
+  })
+
+  const generateImageMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post<{ image_url: string | null }>('/produto-perfeito/gerar-imagem', {
+        query,
+      })
+      return data
+    },
+    onSuccess: (data) => {
+      if (data.image_url) {
+        const updated = { ...result!, ai_image_url: data.image_url }
+        setResult(updated)
+        setPerfectProductResult(updated)
+      }
+    },
   })
 
   const hasResults = visibleResults.length > 0
@@ -180,12 +214,22 @@ export default function PerfectProductPage() {
                 <img src={result.ai_image_url} alt={result.query}
                   className="w-full max-w-sm mx-auto rounded-xl" />
               ) : (
-                <div className="w-full h-40 rounded-xl bg-gray-100 flex items-center justify-center">
+                <div className="w-full h-40 rounded-xl bg-gray-100 flex flex-col items-center justify-center gap-3">
                   <p className="text-xs text-gray-400 text-center px-4">
                     {result.ai_ready
                       ? 'Geração de imagem não configurada'
                       : 'Configure a IA em backend/app/core/constants.py para gerar imagens'}
                   </p>
+                  <button
+                    onClick={() => generateImageMutation.mutate()}
+                    disabled={generateMutation.isPending || generateImageMutation.isPending}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r
+                               from-purple-600 to-pink-500 text-white text-xs font-semibold
+                               hover:from-purple-700 hover:to-pink-600 disabled:opacity-50 transition-all"
+                  >
+                    <Image size={14} />
+                    {generateImageMutation.isPending ? 'Gerando imagem…' : 'Gerar Imagem IA'}
+                  </button>
                 </div>
               )}
             </div>
@@ -203,7 +247,7 @@ export default function PerfectProductPage() {
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-sm font-semibold text-gray-700">Visão Geral — Todos os Marketplaces</span>
               </div>
-              <PriceGrid analysis={result.overall} purchasePrice={purchasePrice} />
+              <PriceGrid analysis={result.overall} />
             </div>
 
             {/* AI Description */}
@@ -315,7 +359,7 @@ function MarketplaceCard({
         )}
       </div>
 
-      <PriceGrid analysis={a} purchasePrice={purchasePrice} />
+      <PriceGrid analysis={a} />
 
       {data.net_margin != null && (
         <div className="flex justify-between items-center pt-1 border-t border-gray-100">
@@ -342,11 +386,10 @@ function MarketplaceCard({
 }
 
 
-function PriceGrid({ analysis: a, purchasePrice }: {
+function PriceGrid({ analysis: a }: {
   analysis: { iqr_mean: number | null; min_price: number | null; max_price: number | null;
                median_price: number | null; competitive_floor: number | null;
                suggested_price_20pct: number | null }
-  purchasePrice: number | null
 }) {
   const items = [
     { label: 'Média IQR',        value: a.iqr_mean,              highlight: true },
@@ -354,16 +397,28 @@ function PriceGrid({ analysis: a, purchasePrice }: {
     { label: 'Máximo',           value: a.max_price              },
     { label: 'Mediana',          value: a.median_price           },
     { label: 'Piso competitivo', value: a.competitive_floor      },
-    { label: 'Sugerido +20%',    value: a.suggested_price_20pct  },
+    { label: 'Preço sugerido',   value: a.suggested_price_20pct, tooltip: 'Preço sugerido de venda: média dos preços dos produtos encontrados (após remoção de outliers pelo filtro IQR), com markup de 20%.', },
   ]
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-      {items.map(({ label, value, highlight }) => (
+      {items.map(({ label, value, highlight, tooltip }) => (
         <div key={label} className={clsx(
-          'rounded-lg px-3 py-2',
+          'rounded-lg px-3 py-2 relative',
           highlight ? 'bg-brand-50' : 'bg-gray-50'
         )}>
-          <p className="text-xs text-gray-400">{label}</p>
+          <div className="flex items-center gap-1">
+            <p className="text-xs text-gray-400">{label}</p>
+            {tooltip && (
+              <span className="relative group inline-flex">
+                <Info size={11} className="text-gray-400 cursor-help" />
+                <span className="hidden group-hover:block absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2
+                                 w-56 px-3 py-2 bg-gray-900 text-white text-[10px] leading-relaxed rounded-lg shadow-lg
+                                 pointer-events-none">
+                  {tooltip}
+                </span>
+              </span>
+            )}
+          </div>
           <p className={clsx('text-sm font-bold', highlight ? 'text-brand-700' : 'text-gray-800')}>
             {formatBRL(value as number | null)}
           </p>

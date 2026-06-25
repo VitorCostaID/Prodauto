@@ -19,5 +19,5 @@ PERFECT_PRODUCT_DAILY_LIMIT: int = 1  # placeholder for subscription later
 # ── AI integration ────────────────────────────────────────────────────────
 # INSERT YOUR API KEY AND MODEL HERE when ready
 AI_API_KEY: str = ""               # e.g. "sk-..."
-AI_MODEL: str = ""                 # e.g. "gpt-4o" or "claude-sonnet-4-6"
-AI_BASE_URL: str = ""              # e.g. "https://api.openai.com/v1"
+AI_MODEL: str = "google-gemini"                 # e.g. "gpt-4o" or "claude-sonnet-4-6"
+AI_BASE_URL: str = "https://aistudio.google.com"              # e.g. "https://api.openai.com/v1"

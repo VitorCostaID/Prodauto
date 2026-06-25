@@ -5,6 +5,7 @@ Receives already-collected search results + costs config,
 runs review scraping, calls AI (when configured), returns full analysis.
 """
 from fastapi import APIRouter, HTTPException, status
+from pydantic import BaseModel
 
 from app.core.constants import AI_API_KEY, AI_MODEL, DESCRIPTIONS_FOR_AI
 from app.schemas.schemas import (
@@ -127,3 +128,23 @@ async def generate_perfect_product(body: PerfectProductRequest):
         ai_image_url=ai_image_url,
         ai_ready=ai_ready,
     )
+
+
+class ImageRequest(BaseModel):
+    query: str
+
+
+class ImageResponse(BaseModel):
+    image_url: str | None = None
+
+
+@router.post("/gerar-imagem", response_model=ImageResponse)
+async def generate_image(body: ImageRequest):
+    ai_ready = bool(AI_API_KEY and AI_MODEL)
+    if not ai_ready:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="IA não configurada. Preencha AI_API_KEY e AI_MODEL em constants.py."
+        )
+    image_url = await generate_image_prompt(body.query)
+    return ImageResponse(image_url=image_url)

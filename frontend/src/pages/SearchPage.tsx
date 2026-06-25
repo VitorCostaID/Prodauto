@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { Search, X, ExternalLink, TrendingUp, Sparkles, Info } from 'lucide-react'
+import { Search, X, ExternalLink, TrendingUp, Sparkles, Info, ArrowUpDown } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { clsx } from 'clsx'
 import { api } from '@/lib/api'
@@ -16,7 +16,7 @@ const formatBRL = (v: number | null) =>
 
 export default function SearchPage() {
   const navigate = useNavigate()
-  const { setResponse, removeResult, visibleResults, lastResponse, setPurchasePrice, purchasePrice } =
+  const { setResponse, removeResult, visibleResults, lastResponse, setPurchasePrice } =
     useSearchStore()
 
   const [query, setQuery] = useState('')
@@ -24,6 +24,9 @@ export default function SearchPage() {
   const [maxResults, setMaxResults] = useState(10)
   const [strictFilter, setStrictFilter] = useState(true)
   const [purchaseInput, setPurchaseInput] = useState('')
+  const [sortBy, setSortBy] = useState<string>('price_asc')
+  const [minPriceInput, setMinPriceInput] = useState('')
+  const [maxPriceInput, setMaxPriceInput] = useState('')
 
   const analysis = lastResponse?.analysis
 
@@ -37,16 +40,48 @@ export default function SearchPage() {
         max_results: maxResults,
         purchase_price: pp,
         strict_filter: strictFilter,
+        sort_by: sortBy || null,
+        min_price: minPriceInput ? parseFloat(minPriceInput) : null,
+        max_price: maxPriceInput ? parseFloat(maxPriceInput) : null,
       })
       return data
     },
-    onSuccess: (data) => setResponse(data),
+    onSuccess: (data) => {
+      setResponse(data)
+      try {
+        localStorage.setItem('last-search', JSON.stringify({
+          response: data,
+          visibleResults: data.search.results,
+          purchasePrice: purchaseInput ? parseFloat(purchaseInput) : null,
+          sortBy,
+          minPrice: minPriceInput,
+          maxPrice: maxPriceInput,
+        }))
+      } catch {}
+    },
   })
 
   const toggleMarket = (id: string) =>
     setSelectedMarkets((prev) =>
       prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]
     )
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('last-search')
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (parsed.response) setResponse(parsed.response)
+        if (parsed.purchasePrice != null) {
+          setPurchasePrice(parsed.purchasePrice)
+          setPurchaseInput(String(parsed.purchasePrice))
+        }
+        if (parsed.sortBy) setSortBy(parsed.sortBy)
+        if (parsed.minPrice) setMinPriceInput(parsed.minPrice)
+        if (parsed.maxPrice) setMaxPriceInput(parsed.maxPrice)
+      }
+    } catch {}
+  }, [])
 
   return (
     <AppLayout>
@@ -107,9 +142,37 @@ export default function SearchPage() {
 
           {/* Options row */}
           <div className="flex flex-wrap items-center gap-4">
+            {/* Price range */}
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-500 whitespace-nowrap">Preço</label>
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">R$</span>
+                <input
+                  type="number" min={0} step={0.01}
+                  placeholder="Mín"
+                  value={minPriceInput}
+                  onChange={(e) => setMinPriceInput(e.target.value)}
+                  className="w-24 pl-8 pr-2 py-1.5 text-sm border border-gray-300 rounded-lg
+                             focus:outline-none focus:ring-2 focus:ring-brand-400"
+                />
+              </div>
+              <span className="text-xs text-gray-400">—</span>
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">R$</span>
+                <input
+                  type="number" min={0} step={0.01}
+                  placeholder="Máx"
+                  value={maxPriceInput}
+                  onChange={(e) => setMaxPriceInput(e.target.value)}
+                  className="w-24 pl-8 pr-2 py-1.5 text-sm border border-gray-300 rounded-lg
+                             focus:outline-none focus:ring-2 focus:ring-brand-400"
+                />
+              </div>
+            </div>
+
             {/* Purchase price */}
             <div className="flex items-center gap-2">
-              <label className="text-xs text-gray-500 whitespace-nowrap">Preço de compra</label>
+              <label className="text-xs text-gray-500 whitespace-nowrap">Custo</label>
               <div className="relative">
                 <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">R$</span>
                 <input
@@ -121,6 +184,21 @@ export default function SearchPage() {
                              focus:outline-none focus:ring-2 focus:ring-brand-400"
                 />
               </div>
+            </div>
+
+            {/* Sort */}
+            <div className="flex items-center gap-2">
+              <ArrowUpDown size={14} className="text-gray-400" />
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="text-xs border border-gray-300 rounded-lg px-2 py-1.5
+                           focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white"
+              >
+                <option value="price_asc">Menor preço</option>
+                <option value="price_desc">Maior preço</option>
+                <option value="rating_desc">Melhor avaliação</option>
+              </select>
             </div>
 
             {/* Strict filter toggle */}
@@ -172,9 +250,22 @@ export default function SearchPage() {
                 {visibleResults.length} resultado(s) — clique no ✕ para remover
               </p>
 
-              {visibleResults.map((item) => (
-                <ResultCard key={item.id} item={item} onRemove={removeResult} />
-              ))}
+              {(() => {
+                const minP = minPriceInput ? parseFloat(minPriceInput) : null
+                const maxP = maxPriceInput ? parseFloat(maxPriceInput) : null
+                let filtered = visibleResults
+                if (minP != null) filtered = filtered.filter(r => r.price_brl != null && r.price_brl >= minP)
+                if (maxP != null) filtered = filtered.filter(r => r.price_brl != null && r.price_brl <= maxP)
+                const sorted = [...filtered].sort((a, b) => {
+                  if (sortBy === 'price_asc') return (a.price_brl ?? Infinity) - (b.price_brl ?? Infinity)
+                  if (sortBy === 'price_desc') return (b.price_brl ?? 0) - (a.price_brl ?? 0)
+                  if (sortBy === 'rating_desc') return parseFloat(b.rating || '0') - parseFloat(a.rating || '0')
+                  return 0
+                })
+                return sorted.map((item) => (
+                  <ResultCard key={item.id} item={item} onRemove={removeResult} />
+                ))
+              })()}
 
               {/* Generate Perfect Product button */}
               {visibleResults.length > 0 && (
@@ -207,12 +298,6 @@ export default function SearchPage() {
                   <StatRow label="Piso competitivo" value={formatBRL(analysis.competitive_floor)} />
 
                   <hr className="border-gray-100" />
-                  <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">
-                    Preço sugerido de venda
-                  </p>
-                  <StatRow label="Markup 10%" value={formatBRL(analysis.suggested_price_10pct)} />
-                  <StatRow label="Markup 20%" value={formatBRL(analysis.suggested_price_20pct)} />
-                  <StatRow label="Markup 30%" value={formatBRL(analysis.suggested_price_30pct)} />
 
                   {/* Viability indicator */}
                   {analysis.purchase_price != null && (

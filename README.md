@@ -1,4 +1,4 @@
-# PrecoBOT — Análise de Preços para Marketplaces Brasileiros
+# Prodauto — Análise de Preços para Marketplaces Brasileiros
 
 Sistema completo de scraping e inteligência de preços para marketplaces brasileiros. Coleta produtos automaticamente, filtra por relevância, calcula métricas de precificação, analisa avaliações de clientes e gera conteúdo com IA.
 
@@ -21,7 +21,7 @@ Sistema completo de scraping e inteligência de preços para marketplaces brasil
 
 ## Visão Geral
 
-O PrecoBOT é dividido em três processos independentes que se comunicam via HTTP:
+O Prodauto é dividido em três processos independentes que se comunicam via HTTP:
 
 ```
 Navegador (React) → FastAPI (porta 8000) → Servidor de Scraping (porta 8001)
@@ -54,7 +54,6 @@ Essa separação existe porque o Playwright (biblioteca usada para automação d
 
 ### Motor de Preços
 - Filtro IQR para remoção de outliers antes de calcular a média
-- Piso competitivo (preço abaixo dos 20% mais baratos do mercado)
 - Cálculo de preço mínimo viável considerando todos os custos em comparação com concorrentes
 
 ---

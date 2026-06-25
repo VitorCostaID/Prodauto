@@ -76,6 +76,12 @@ class SearchRequest(BaseModel):
         description="Preço de compra do produto (R$)")
     strict_filter: bool = Field(default=True,
         description="Filtrar apenas produtos que contenham todas as palavras da busca")
+    sort_by: Optional[str] = Field(default=None,
+        description="Ordenação: 'price_asc', 'price_desc', 'rating_desc'")
+    min_price: Optional[float] = Field(default=None, ge=0,
+        description="Preço mínimo do filtro (R$)")
+    max_price: Optional[float] = Field(default=None, ge=0,
+        description="Preço máximo do filtro (R$)")
 
     @field_validator("marketplaces")
     @classmethod
