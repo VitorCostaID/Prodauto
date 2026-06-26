@@ -24,27 +24,38 @@ def _ai_ready() -> bool:
 
 
 async def _call_ai(system_prompt: str, user_prompt: str) -> str:
-    """Generic AI call — works with any OpenAI-compatible API."""
+    """Generic AI call — using Gemini Native API format."""
     headers = {
-        "Authorization": f"Bearer {AI_API_KEY}",
+        "x-goog-api-key": AI_API_KEY,
         "Content-Type": "application/json",
     }
+
     payload = {
-        "model": AI_MODEL,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user",   "content": user_prompt},
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "text": f"{system_prompt}\n\n{user_prompt}"
+                    }
+                ]
+            }
         ],
-        "max_tokens": 1000,
+        "generationConfig": {
+            "maxOutputTokens": 15000
+        }
     }
+    
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
-            f"{AI_BASE_URL}/chat/completions",
+            f"{AI_BASE_URL}",
             headers=headers,
             json=payload,
         )
         response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"].strip()
+        
+        # O retorno da API nativa do Gemini vem nesta estrutura de chaves:
+        data = response.json()
+        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
 
 
 async def generate_description(
@@ -65,12 +76,15 @@ async def generate_description(
     system = (
         "Você é um especialista em copywriting para e-commerce brasileiro. "
         "Escreva descrições profissionais, objetivas e persuasivas em português brasileiro."
+        ""
     )
     user = (
         f"Produto: {product_name}\n\n"
         f"Com base nas descrições abaixo de produtos similares, crie uma descrição "
         f"profissional e completa para este produto. Destaque os principais benefícios, "
-        f"especificações técnicas e diferenciais. Use linguagem clara e persuasiva.\n\n"
+        f"especificações técnicas e diferenciais. Use linguagem clara e persuasiva."
+        f"Envie somente a descrição, não adicione nenhuma informação introdutória"
+        f"ou adicional como 'Irei gerar sua descrição como um profissional de copywriting'. \n\n"
         f"{descriptions_text}"
     )
     return await _call_ai(system, user)
@@ -118,14 +132,8 @@ async def generate_image_prompt(product_name: str) -> Optional[str]:
     """
     Returns a placeholder URL for now.
     Replace this function body with your image generation API call.
-
-    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-      TO ACTIVATE: replace the return below
-      with a call to DALL-E, Stability AI,
-      or any image generation API you choose.
-    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     """
     if not _ai_ready():
         return None
     # Placeholder — implement image generation here
-    return None
+    return ""

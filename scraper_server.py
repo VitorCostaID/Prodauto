@@ -117,7 +117,7 @@ async def scrape_reviews(body: ReviewScrapeRequest):
 
             # Clica em "Mostrar todas as opiniões"
             try:
-                see_more = page.locator('[data-testid="see-more"]')
+                see_more = page.locator('"#see-more"')
                 await see_more.wait_for(timeout=5000)
                 await see_more.click()
                 await page.wait_for_timeout(2000)
@@ -128,22 +128,24 @@ async def scrape_reviews(body: ReviewScrapeRequest):
             for star in [5, 4, 3, 2, 1]:
                 key = f"star_{star}"
                 try:
-                    # Abre o dropdown de qualificação
+                    # Localiza o botão do dropdown
                     dropdown_btn = page.locator("#dropdown-button-rating")
-                    await dropdown_btn.wait_for(timeout=5000)
-                    await dropdown_btn.click()
-                    await page.wait_for_timeout(800)
+                    await dropdown_btn.scroll_into_view_if_needed()
+                    await dropdown_btn.wait_for(state="visible", timeout=5000)
+                    
+                    # CORREÇÃO: Usa force=True para ignorar overlays bloqueando o clique
+                    await dropdown_btn.click(force=True)
+                    await page.wait_for_timeout(1000)
 
                     # Clica na opção de estrela correspondente
-                    option = page.locator(f"#{star_option_ids[star]}")
-                    await option.wait_for(timeout=3000)
-                    await option.click()
-                    await page.wait_for_timeout(1500)
+                    option = page.locator(f"#dropdown-option-rating-{star}")
+                    await option.wait_for(state="visible", timeout=3000)
+                    await option.click(force=True) # Também forçado para garantir dentro do modal
+                    
+                    await page.wait_for_timeout(2000)
 
                     # Coleta N avaliações
-                    review_els = page.locator(
-                        "p.ui-review-capability__summary__plain_text__summary_container"
-                    )
+                    review_els = page.locator("p.ui-review-capability-comments__comment__content")
                     count = await review_els.count()
                     collected = []
                     for i in range(min(body.reviews_per_star, count)):
@@ -155,6 +157,11 @@ async def scrape_reviews(body: ReviewScrapeRequest):
 
                 except Exception as e:
                     print(f"[reviews] Erro na estrela {star}: {e}")
+                    # Tenta clicar fora ou dar um refresh leve se o menu travar aberto em caso de erro
+                    try:
+                        await page.mouse.click(0, 0)
+                    except:
+                        pass
 
             await page.close()
             await browser.close()
