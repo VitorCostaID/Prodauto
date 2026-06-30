@@ -47,6 +47,25 @@ async def run_search(body: SearchRequest):
             "description": item.get("description"),
         })
 
+    # 3.5 Price filter
+    if body.min_price is not None:
+        result_list = [r for r in result_list if r["price_brl"] is not None and r["price_brl"] >= body.min_price]
+    if body.max_price is not None:
+        result_list = [r for r in result_list if r["price_brl"] is not None and r["price_brl"] <= body.max_price]
+
+    # 3.6 Sort
+    if body.sort_by == "price_asc":
+        result_list.sort(key=lambda r: r["price_brl"] if r["price_brl"] is not None else float('inf'))
+    elif body.sort_by == "price_desc":
+        result_list.sort(key=lambda r: r["price_brl"] if r["price_brl"] is not None else 0, reverse=True)
+    elif body.sort_by == "rating_desc":
+        def _rating_val(r):
+            try:
+                return float(r.get("rating") or 0)
+            except (ValueError, TypeError):
+                return 0
+        result_list.sort(key=_rating_val, reverse=True)
+
     # 4. Price analysis — no costs here, costs are applied on Perfect Product page
     analysis = compute_price_analysis(
         price_brls=[r["price_brl"] for r in result_list],

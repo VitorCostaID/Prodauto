@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     # ── App ───────────────────────────────────────────────
     ENVIRONMENT: str = "development"
     ALLOWED_ORIGINS: list[str] = ["http://localhost:5173"]
+
+    # ── AI integration ────────────────────────────────────
+    AI_API_KEY: str = ""
+    AI_MODEL: str = ""
+    AI_BASE_URL: str = ""
     
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

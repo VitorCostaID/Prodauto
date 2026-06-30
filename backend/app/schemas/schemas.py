@@ -63,8 +63,8 @@ class MarketplaceCosts(BaseModel):
 
 SUPPORTED_MARKETPLACES = [
     "mercadolivre",
-    "shopee",
-    "magazineluiza",
+    # "shopee",           # Desativado — para reativar, descomente
+    # "magazineluiza",    # Desativado — para reativar, descomente
     "amazon",
 ]
 
@@ -76,6 +76,12 @@ class SearchRequest(BaseModel):
         description="Preço de compra do produto (R$)")
     strict_filter: bool = Field(default=True,
         description="Filtrar apenas produtos que contenham todas as palavras da busca")
+    sort_by: Optional[str] = Field(default=None,
+        description="Ordenação: 'price_asc', 'price_desc', 'rating_desc'")
+    min_price: Optional[float] = Field(default=None, ge=0,
+        description="Preço mínimo do filtro (R$)")
+    max_price: Optional[float] = Field(default=None, ge=0,
+        description="Preço máximo do filtro (R$)")
 
     @field_validator("marketplaces")
     @classmethod
@@ -155,6 +161,10 @@ class PerfectProductRequest(BaseModel):
     costs: Optional[MarketplaceCosts] = None
     purchase_price: Optional[float] = None
     reviews_per_star: int = Field(default=1, ge=1, le=MAX_REVIEWS_PER_STAR)
+    price_mode: str = Field(default="iniciante",
+        description="Modo de precificação: 'iniciante', 'intermediario', 'avancado'")
+    custom_markup: float = Field(default=20.0, ge=0,
+        description="Markup personalizado (%) — usado apenas no modo 'avancado'")
 
 
 class MarketplaceAnalysis(BaseModel):

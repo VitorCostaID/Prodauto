@@ -1,4 +1,15 @@
+# Virtual Enviroments
 .venv
+.env
+
+# Python + NodeJS 
 __pycache__
 node_modules
-.env
+
+# Node Build
+dist
+
+#Tests
+test_scraper.py
+test_reviews1.py
+test_reviews2.py

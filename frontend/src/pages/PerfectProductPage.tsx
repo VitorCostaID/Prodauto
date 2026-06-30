@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { Sparkles, ChevronDown, ChevronUp, AlertCircle, CheckCircle, Info } from 'lucide-react'
+import { Sparkles, ChevronDown, ChevronUp, AlertCircle, CheckCircle, Info, Eye } from 'lucide-react'
 import { clsx } from 'clsx'
 import { api } from '@/lib/api'
 import { useSearchStore } from '@/store/searchStore'
+import type { PriceMode } from '@/store/searchStore'
 import { useCostsStore } from '@/store/costsStore'
-import { SUPPORTED_MARKETPLACES } from '@/lib/types'
 import type { PerfectProductResponse, MarketplaceAnalysis } from '@/lib/types'
 import AppLayout from '@/components/layout/AppLayout'
 import MarketplaceBadge from '@/components/ui/MarketplaceBadge'
@@ -14,12 +14,69 @@ import CostsPanel from '@/components/ui/CostsPanel'
 const formatBRL = (v: number | null | undefined) =>
   v == null ? '—' : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
+function renderMarkdown(text: string): string {
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+  return escaped
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`(.+?)`/g, '<code class="bg-gray-200 px-1 rounded text-gray-700 text-[11px]">$1</code>')
+    .replace(/\n/g, '<br />')
+}
+
+function MarkdownBlock({ text, className }: { text: string; className?: string }) {
+  return (
+    <p
+      className={className}
+      dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }}
+    />
+  )
+}
+
+const PRICE_MODES: { key: PriceMode; label: string; desc: string }[] = [
+  {
+    key: 'iniciante',
+    label: 'Iniciante',
+    desc: 'Lucro mínimo (0%). Ideal para quem está começando e quer validar o mercado com o menor preço viável. Se o preço médio ficar 2% acima ou abaixo do custo, o markup é ajustado para 5%.',
+  },
+  {
+    key: 'intermediario',
+    label: 'Intermediário',
+    desc: 'Preço médio de mercado (IQR). Posicionamento equilibrado entre competitividade e margem, recomendado para vendedores com alguma experiência.',
+  },
+  {
+    key: 'avancado',
+    label: 'Avançado',
+    desc: 'Você define o markup desejado sobre os custos. Indicado para quem já domina o mercado e quer maximizar a margem de lucro.',
+  },
+]
+
 export default function PerfectProductPage() {
-  const { visibleResults, lastResponse, purchasePrice } = useSearchStore()
+  const {
+    visibleResults, lastResponse, perfectProductResult,
+    setPerfectProductResult, hiddenResults, pricingConfig, setPricingConfig,
+  } = useSearchStore()
   const { getCosts } = useCostsStore()
-  const [result, setResult] = useState<PerfectProductResponse | null>(null)
+  const [result, setResult] = useState<PerfectProductResponse | null>(perfectProductResult)
   const [costsOpen, setCostsOpen] = useState(false)
   const [reviewsPerStar, setReviewsPerStar] = useState(1)
+  const [reviewsOpen, setReviewsOpen] = useState(false)
+
+  useEffect(() => {
+    if (perfectProductResult && !result) {
+      setResult(perfectProductResult)
+    }
+    if (perfectProductResult && visibleResults.length > 0) {
+      const currentIds = visibleResults.map(r => r.id).sort().join(',')
+      const cachedIds = perfectProductResult._resultIds ?? ''
+      if (cachedIds && currentIds !== cachedIds) {
+        setResult(null)
+        setPerfectProductResult(null)
+      }
+    }
+  }, [])
 
   const query = lastResponse?.search.query ?? ''
   const marketplaces = lastResponse
@@ -28,24 +85,33 @@ export default function PerfectProductPage() {
 
   const generateMutation = useMutation({
     mutationFn: async () => {
-      // Use costs from the first marketplace as primary
       const primaryMarket = marketplaces[0] ?? 'mercadolivre'
       const costs = getCosts(primaryMarket)
+      const activeResults = visibleResults.filter(r => !hiddenResults.includes(r.id))
 
       const { data } = await api.post<PerfectProductResponse>('/produto-perfeito/', {
         query,
         marketplace: primaryMarket,
-        results: visibleResults,
+        results: activeResults,
         costs,
-        purchase_price: purchasePrice,
+        purchase_price: pricingConfig.purchasePrice,
         reviews_per_star: reviewsPerStar,
+        price_mode: pricingConfig.priceMode,
+        custom_markup: pricingConfig.customMarkup,
       })
       return data
     },
-    onSuccess: setResult,
+    onSuccess: (data) => {
+      const ids = visibleResults.filter(r => !hiddenResults.includes(r.id)).map(r => r.id).sort().join(',')
+      const cached = { ...data, _resultIds: ids } as PerfectProductResponse & { _resultIds: string }
+      setResult(cached)
+      setPerfectProductResult(cached)
+    },
   })
 
   const hasResults = visibleResults.length > 0
+  const activeResults = visibleResults.filter(r => !hiddenResults.includes(r.id))
+  const hasActiveResults = activeResults.length > 0
 
   return (
     <AppLayout>
@@ -77,6 +143,16 @@ export default function PerfectProductPage() {
           </div>
         )}
 
+        {/* Hidden notice */}
+        {hasResults && hiddenResults.length > 0 && (
+          <div className="bg-amber-50 border border-amber-100 rounded-lg px-4 py-2 flex items-center gap-2">
+            <Info size={14} className="text-amber-500 flex-shrink-0" />
+            <p className="text-xs text-amber-700">
+              {hiddenResults.length} produto(s) oculto(s) não serão incluídos na análise.
+            </p>
+          </div>
+        )}
+
         {/* Current search info */}
         {hasResults && (
           <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-4 items-center justify-between">
@@ -84,13 +160,78 @@ export default function PerfectProductPage() {
               <p className="text-xs text-gray-400">Busca atual</p>
               <p className="font-semibold text-gray-800">"{query}"</p>
               <p className="text-xs text-gray-500 mt-0.5">
-                {visibleResults.length} produto(s) · {marketplaces.join(', ')}
+                {activeResults.length} produto(s) ativo(s) · {marketplaces.join(', ')}
               </p>
             </div>
-            {purchasePrice != null && (
+            {pricingConfig.purchasePrice != null && (
               <div className="text-right">
                 <p className="text-xs text-gray-400">Preço de compra</p>
-                <p className="font-semibold text-gray-800">{formatBRL(purchasePrice)}</p>
+                <p className="font-semibold text-gray-800">{formatBRL(pricingConfig.purchasePrice)}</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Global pricing config — outside marketplace costs */}
+        {hasResults && (
+          <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+            <h2 className="text-sm font-semibold text-gray-700">Configuração de Preço</h2>
+
+            {/* Purchase price */}
+            <div className="flex items-center gap-3">
+              <label className="text-xs text-gray-600 whitespace-nowrap">Preço de compra</label>
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">R$</span>
+                <input
+                  type="number" min={0} step={0.01}
+                  placeholder="0,00"
+                  value={pricingConfig.purchasePrice ?? ''}
+                  onChange={(e) => setPricingConfig({ purchasePrice: e.target.value ? parseFloat(e.target.value) : null })}
+                  className="w-32 pl-8 pr-2 py-1.5 text-sm border border-gray-300 rounded-lg
+                             focus:outline-none focus:ring-2 focus:ring-brand-400"
+                />
+              </div>
+            </div>
+
+            {/* Price mode selector */}
+            <div className="space-y-2">
+              <label className="text-xs text-gray-600 font-medium">Modo de precificação</label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {PRICE_MODES.map((mode) => (
+                  <button
+                    key={mode.key}
+                    onClick={() => setPricingConfig({ priceMode: mode.key })}
+                    className={clsx(
+                      'text-left p-3 rounded-xl border-2 transition-all',
+                      pricingConfig.priceMode === mode.key
+                        ? 'border-brand-500 bg-brand-50'
+                        : 'border-gray-200 hover:border-gray-300 bg-white'
+                    )}
+                  >
+                    <p className={clsx(
+                      'text-xs font-semibold',
+                      pricingConfig.priceMode === mode.key ? 'text-brand-700' : 'text-gray-700'
+                    )}>
+                      {mode.label}
+                    </p>
+                    <p className="text-[10px] text-gray-500 mt-1 leading-relaxed">{mode.desc}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Custom markup for advanced mode */}
+            {pricingConfig.priceMode === 'avancado' && (
+              <div className="flex items-center gap-3">
+                <label className="text-xs text-gray-600 whitespace-nowrap">Markup desejado</label>
+                <input
+                  type="number" min={0} max={500} step={1}
+                  value={pricingConfig.customMarkup}
+                  onChange={(e) => setPricingConfig({ customMarkup: parseFloat(e.target.value) || 0 })}
+                  className="w-20 px-2 py-1.5 text-sm border border-gray-300 rounded-lg text-center
+                             focus:outline-none focus:ring-2 focus:ring-brand-400"
+                />
+                <span className="text-xs text-gray-400">%</span>
               </div>
             )}
           </div>
@@ -142,7 +283,7 @@ export default function PerfectProductPage() {
         {hasResults && !result && (
           <button
             onClick={() => generateMutation.mutate()}
-            disabled={generateMutation.isPending}
+            disabled={generateMutation.isPending || !hasActiveResults}
             className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl
                        bg-gradient-to-r from-brand-600 to-brand-500 text-white font-semibold
                        hover:from-brand-700 hover:to-brand-600 disabled:opacity-50
@@ -173,28 +314,25 @@ export default function PerfectProductPage() {
               {generateMutation.isPending ? 'Atualizando…' : '↻ Regenerar análise'}
             </button>
 
-            {/* AI image placeholder */}
+            {/* ── Imagem do Produto — Em breve ─────────────────────── */}
+            {/* PARA ATIVAR: substitua este bloco pelo componente de geração de imagem.
+                Adicione novamente o import de { Image } do lucide-react,
+                o generateImageMutation, e o botão/preview da imagem. */}
             <div className="bg-white rounded-2xl border border-gray-200 p-5">
               <h2 className="text-sm font-semibold text-gray-700 mb-3">Imagem do Produto</h2>
-              {result.ai_image_url ? (
-                <img src={result.ai_image_url} alt={result.query}
-                  className="w-full max-w-sm mx-auto rounded-xl" />
-              ) : (
-                <div className="w-full h-40 rounded-xl bg-gray-100 flex items-center justify-center">
-                  <p className="text-xs text-gray-400 text-center px-4">
-                    {result.ai_ready
-                      ? 'Geração de imagem não configurada'
-                      : 'Configure a IA em backend/app/core/constants.py para gerar imagens'}
-                  </p>
+              <div className="w-full h-28 rounded-xl bg-gray-50 flex items-center justify-center">
+                <div className="text-center">
+                  <p className="text-sm font-medium text-gray-400">Em breve</p>
+                  <p className="text-[10px] text-gray-300 mt-1">Geração de imagem por IA será disponibilizada em uma versão futura.</p>
                 </div>
-              )}
+              </div>
             </div>
 
             {/* Per-marketplace cards */}
             <div className="space-y-4">
               <h2 className="text-sm font-semibold text-gray-700">Análise por Marketplace</h2>
               {result.per_marketplace.map((mp) => (
-                <MarketplaceCard key={mp.marketplace} data={mp} purchasePrice={purchasePrice} />
+                <MarketplaceCard key={mp.marketplace} data={mp} />
               ))}
             </div>
 
@@ -203,16 +341,17 @@ export default function PerfectProductPage() {
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-sm font-semibold text-gray-700">Visão Geral — Todos os Marketplaces</span>
               </div>
-              <PriceGrid analysis={result.overall} purchasePrice={purchasePrice} />
+              <PriceGrid analysis={result.overall} />
             </div>
 
             {/* AI Description */}
             <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-3">
               <h2 className="text-sm font-semibold text-gray-700">Descrição Profissional</h2>
               {result.ai_description ? (
-                <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
-                  {result.ai_description}
-                </p>
+                <MarkdownBlock
+                  text={result.ai_description}
+                  className="text-sm text-gray-700 leading-relaxed"
+                />
               ) : (
                 <AiPlaceholder />
               )}
@@ -230,7 +369,7 @@ export default function PerfectProductPage() {
               )}
             </div>
 
-            {/* Reviews + AI improvements */}
+            {/* ── Avaliações & Melhorias ──────────────────────────── */}
             <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-4">
               <div className="flex items-start justify-between">
                 <h2 className="text-sm font-semibold text-gray-700">Avaliações & Melhorias</h2>
@@ -242,38 +381,54 @@ export default function PerfectProductPage() {
                 </div>
               </div>
 
-              {/* Reviews by star */}
-              <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
-                {([5, 4, 3, 2, 1] as const).map((star) => {
-                  const key = `star_${star}` as keyof typeof result.reviews
-                  const texts = result.reviews[key]
-                  return (
-                    <div key={star} className="bg-gray-50 rounded-xl p-3">
-                      <p className="text-xs font-semibold text-gray-600 mb-2">
-                        {'★'.repeat(star)}{'☆'.repeat(5 - star)}
-                      </p>
-                      {texts.length > 0
-                        ? texts.map((t, i) => (
-                            <p key={i} className="text-xs text-gray-600 leading-relaxed">{t}</p>
-                          ))
-                        : <p className="text-xs text-gray-400 italic">Nenhuma avaliação coletada</p>
-                      }
-                    </div>
-                  )
-                })}
-              </div>
-
-              {/* AI improvements */}
+              {/* AI improvements — shown first */}
               {result.ai_improvements ? (
                 <div className="bg-brand-50 rounded-xl p-4">
                   <p className="text-xs font-semibold text-brand-700 mb-2">Sugestões de Melhoria (IA)</p>
-                  <p className="text-sm text-brand-800 leading-relaxed whitespace-pre-wrap">
-                    {result.ai_improvements}
-                  </p>
+                  <MarkdownBlock
+                    text={result.ai_improvements}
+                    className="text-sm text-brand-800 leading-relaxed"
+                  />
                 </div>
               ) : (
                 <AiPlaceholder label="Sugestões de melhoria" />
               )}
+
+              {/* Reviews — collapsed by default */}
+              <div className="border-t border-gray-100 pt-3">
+                <button
+                  onClick={() => setReviewsOpen((o) => !o)}
+                  className="flex items-center gap-2 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+                >
+                  <Eye size={14} />
+                  <span>{reviewsOpen ? 'Ocultar avaliações' : 'Visualizar avaliações'}</span>
+                  {reviewsOpen
+                    ? <ChevronUp size={14} />
+                    : <ChevronDown size={14} />}
+                </button>
+
+                {reviewsOpen && (
+                  <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 mt-3">
+                    {([5, 4, 3, 2, 1] as const).map((star) => {
+                      const key = `star_${star}` as keyof typeof result.reviews
+                      const texts = result.reviews[key]
+                      return (
+                        <div key={star} className="bg-gray-50 rounded-xl p-3">
+                          <p className="text-xs font-semibold text-gray-600 mb-2">
+                            {'★'.repeat(star)}{'☆'.repeat(5 - star)}
+                          </p>
+                          {texts.length > 0
+                            ? texts.map((t, i) => (
+                                <p key={i} className="text-xs text-gray-600 leading-relaxed">{t}</p>
+                              ))
+                            : <p className="text-xs text-gray-400 italic">Nenhuma avaliação coletada</p>
+                          }
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
 
           </div>
@@ -285,10 +440,9 @@ export default function PerfectProductPage() {
 
 
 function MarketplaceCard({
-  data, purchasePrice,
+  data,
 }: {
   data: MarketplaceAnalysis
-  purchasePrice: number | null
 }) {
   const a = data.price_analysis
   const viable = a.is_viable
@@ -315,7 +469,7 @@ function MarketplaceCard({
         )}
       </div>
 
-      <PriceGrid analysis={a} purchasePrice={purchasePrice} />
+      <PriceGrid analysis={a} />
 
       {data.net_margin != null && (
         <div className="flex justify-between items-center pt-1 border-t border-gray-100">
@@ -332,9 +486,6 @@ function MarketplaceCard({
       {viable === false && a.minimum_viable_price != null && (
         <div className="bg-red-50 rounded-lg px-3 py-2 text-xs text-red-700">
           Preço mínimo para viabilidade: <strong>{formatBRL(a.minimum_viable_price)}</strong>
-          {purchasePrice != null && (
-            <> — Preço de compra máximo recomendado: <strong>{formatBRL(data.viable_purchase_price)}</strong></>
-          )}
         </div>
       )}
     </div>
@@ -342,28 +493,39 @@ function MarketplaceCard({
 }
 
 
-function PriceGrid({ analysis: a, purchasePrice }: {
+function PriceGrid({ analysis: a }: {
   analysis: { iqr_mean: number | null; min_price: number | null; max_price: number | null;
                median_price: number | null; competitive_floor: number | null;
                suggested_price_20pct: number | null }
-  purchasePrice: number | null
 }) {
   const items = [
     { label: 'Média IQR',        value: a.iqr_mean,              highlight: true },
     { label: 'Mínimo',           value: a.min_price              },
     { label: 'Máximo',           value: a.max_price              },
     { label: 'Mediana',          value: a.median_price           },
-    { label: 'Piso competitivo', value: a.competitive_floor      },
-    { label: 'Sugerido +20%',    value: a.suggested_price_20pct  },
+    { label: 'Piso competitivo', value: a.competitive_floor,     tooltip: 'Preço mínimo viável com lucro zero: custo total (preço de compra + taxas, comissões, frete e custos extras) dividido pelas deduções variáveis do marketplace.' },
+    { label: 'Preço sugerido',   value: a.suggested_price_20pct, tooltip: 'Preço sugerido de venda calculado conforme o modo de precificação selecionado (Iniciante, Intermediário ou Avançado).' },
   ]
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-      {items.map(({ label, value, highlight }) => (
+      {items.map(({ label, value, highlight, tooltip }) => (
         <div key={label} className={clsx(
-          'rounded-lg px-3 py-2',
+          'rounded-lg px-3 py-2 relative',
           highlight ? 'bg-brand-50' : 'bg-gray-50'
         )}>
-          <p className="text-xs text-gray-400">{label}</p>
+          <div className="flex items-center gap-1">
+            <p className="text-xs text-gray-400">{label}</p>
+            {tooltip && (
+              <span className="relative group inline-flex">
+                <Info size={11} className="text-gray-400 cursor-help" />
+                <span className="hidden group-hover:block absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2
+                                 w-56 px-3 py-2 bg-gray-900 text-white text-[10px] leading-relaxed rounded-lg shadow-lg
+                                 pointer-events-none">
+                  {tooltip}
+                </span>
+              </span>
+            )}
+          </div>
           <p className={clsx('text-sm font-bold', highlight ? 'text-brand-700' : 'text-gray-800')}>
             {formatBRL(value as number | null)}
           </p>
@@ -383,7 +545,7 @@ function AiPlaceholder({ label = 'Conteúdo gerado por IA' }: { label?: string }
         <code className="bg-gray-200 px-1 rounded text-gray-600">AI_API_KEY</code>,{' '}
         <code className="bg-gray-200 px-1 rounded text-gray-600">AI_MODEL</code> e{' '}
         <code className="bg-gray-200 px-1 rounded text-gray-600">AI_BASE_URL</code>{' '}
-        em <code className="bg-gray-200 px-1 rounded text-gray-600">backend/app/core/constants.py</code>.
+        no arquivo <code className="bg-gray-200 px-1 rounded text-gray-600">.env</code>.
       </p>
     </div>
   )

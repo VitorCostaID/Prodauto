@@ -18,20 +18,22 @@ export const SUPPORTED_MARKETPLACES = [
     color: '#FFE600',
     textColor: '#333333',
   },
-  {
-    id: 'shopee',
-    label: 'Shopee',
-    logo: 'https://i.pinimg.com/564x/a0/83/b6/a083b6c01e9cfe682b36ac2e9da7ff17.jpg',
-    color: '#EE4D2D',
-    textColor: '#ffffff',
-  },
-  {
-    id: 'magazineluiza',
-    label: 'Magazine Luiza',
-    logo: 'https://mir-s3-cdn-cf.behance.net/project_modules/1400_webp/9c9d99132854451.61b12a70039ca.jpg',
-    color: '#0086FF',
-    textColor: '#ffffff',
-  },
+  // ── Para reativar: descomente os marketplaces abaixo ──────────────────
+  // {
+  //   id: 'shopee',
+  //   label: 'Shopee',
+  //   logo: 'https://i.pinimg.com/564x/a0/83/b6/a083b6c01e9cfe682b36ac2e9da7ff17.jpg',
+  //   color: '#EE4D2D',
+  //   textColor: '#ffffff',
+  // },
+  // {
+  //   id: 'magazineluiza',
+  //   label: 'Magazine Luiza',
+  //   logo: 'https://mir-s3-cdn-cf.behance.net/project_modules/1400_webp/9c9d99132854451.61b12a70039ca.jpg',
+  //   color: '#0086FF',
+  //   textColor: '#ffffff',
+  // },
+  // ── Fim dos marketplaces desativados ──────────────────────────────────
   {
     id: 'amazon',
     label: 'Amazon',

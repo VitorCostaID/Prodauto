@@ -1,9 +1,10 @@
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, BrowserContext
 #from seleniumbase import sb_cdp
 from seleniumbase import cdp_driver
 from bs4 import BeautifulSoup
 import subprocess
+import traceback
 
 REFS = { 
     # Index Positions mapped to variables inside get_results():
@@ -34,25 +35,42 @@ REFS = {
     "amazon": [
         "https://www.amazon.com.br/", 
         "#twotabsearchtextbox",                      # Amazon search bar ID
-        'div[data-component-type="s-search-result"]', # Amazon individual card wrapper
-        'a.a-text-normal',                            # Title anchor nested inside h2
-        'span.a-a-size-small',                        # Text holding rating star counts
-        'span.a-price span.a-offscreen',              # Clean hidden text price string
-        'span.a-badge-text',                          # Fallback tag wrapper
-        "span[aria-label*='frete']"                   # Target element mentioning shipping
-        "#productDescription",                       # [8] Description
+        "div[data-component-type='s-search-result']", # Card principal
+        "div[data-cy='title-recipe'] h2",          # Título
+        "div[data-cy='reviews-block']",            # Avaliações / Bloco de Review [4]
+        "span.a-price span.a-offscreen",           # Preço [5]
+        "div[data-cy='price-recipe']",             # Condições adicionais/Pix [6]
+        "div[data-cy='delivery-recipe']",          # Informações de Frete/Entrega [7]
+        "#productDescription",                      # Descrição comum na página interna [8]
+        "img.s-image",
+        "a.a-link-normal s-no-outline"
     ],
     
-    "magalu": [
+    # Problema de bloqueio
+    "magazineluiza": [
         "https://www.magazineluiza.com.br/",
         "#header-search-input",
-        "li[data-testid='product-card']",            # Magalu card structural attribute
+        "a[data-testid='product-card-container']",  # Card principal
+        "h2[data-testid='product-title']",          # Título
+        "div[data-testid='review']",                # Avaliação / Estrelas [4]
+        "p[data-testid='price-value']",             # Preço [5]
+        "span[data-testid='in-cash']",              # Condição / Pix [6]
+        "div[data-testid='productCard-shipping-tag']", # Frete / Envio [7]
+        "div[data-testid='product-description']",     # Descrição (Página interna) [8]
+        "img[data-testid='image']"
+    ],
+
+    # Problema de login
+    "shopee": [
+        "https://shopee.com.br/",
+        "#header-search-input",
+        "li[data-testid='product-card']",            
         "h3[data-testid='product-title']",
         "span.sc-eBMEME", 
         "p[data-testid='price-value']",
         "span.condition-placeholder",
         "div[data-testid='shipping-info']"
-        "div[data-testid='product-description']",    # [8] Description (Example)
+        "div[data-testid='product-description']",    
     ]
 }
 
@@ -62,6 +80,37 @@ CAPTCHA_SELECTORS = [
         '#challenge-running',
         '#challenge-stage'
     ]
+
+STAR_OPTION_IDS = {
+    5: "dropdown-option-rating-5",
+    4: "dropdown-option-rating-4",
+    3: "dropdown-option-rating-3",
+    2: "dropdown-option-rating-2",
+    1: "dropdown-option-rating-1",
+}
+
+async def initialize_browser():
+    """
+    Inicializa o Playwright e retorna o browser, o contexto camuflado e o próprio objeto playwright 
+    para que possamos encerrá-lo corretamente depois.
+    """
+    p = await async_playwright().start()
+    browser = await p.chromium.launch(
+        headless=False,  
+        args=[
+            "--headless=new", 
+            "--disable-gpu",
+            "--blink-settings=imagesEnabled=false", 
+            "--disable-blink-features=AutomationControlled", 
+        ]
+    )
+    
+    context = await browser.new_context(
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        viewport={"width": 1920, "height": 1080}
+    )
+
+    return p, browser, context
 
 async def captcha_solver(driver, page, link, selector):
     # --- CHECAGEM DE CAPTCHA ---
@@ -149,9 +198,26 @@ async def get_results(driver, page, references: list, search: str, max_results: 
         shipping_el = card.select_one(references[7])
         img_el = card.select_one(references[9])
 
-        product_link = title_el.get('href') if title_el else "#"
-        if product_link.startswith("/"):
-            product_link = f"{link}{product_link}"
+        # PEGAR LINK: Primeira tentativa: buscar o href no title_el
+        product_link = title_el.get('href') if title_el else None
+
+        # Proteção: se o link estiver vazio ou não for encontrado, tenta o elemento secundário (índice 10)
+        if not product_link or product_link == "#":
+            if len(references) > 10 and references[10]:
+                link_el = card.select_one(references[10])
+                if link_el:
+                    product_link = link_el.get('href')
+
+        # Terceira proteção: se ainda assim estiver nulo ou vazio, define como "#"
+        if not product_link:
+            product_link = "#"
+
+        # Formatação segura: Só tenta concatenar se o link for válido e não for o caractere de escape "#"
+        if product_link != "#" and product_link.startswith("/"):
+            # Garante que não vai duplicar barras na URL
+            base_url = link.rstrip('/')
+            url_path = product_link.lstrip('/')
+            product_link = f"{base_url}/{url_path}"
         
         product_details = {
             "title": title_el.get_text().strip() if title_el else "Unknown",
@@ -169,6 +235,44 @@ async def get_results(driver, page, references: list, search: str, max_results: 
 
 ### ============ MAIN SCRAPER ============ ###
 
+async def scrape_reviews(
+    product_url: str,
+    marketplace: str,
+) -> list[str]:
+    if marketplace != "mercadolivre":
+        return []
+
+    reviews: list[str] = []
+    p = None
+    browser = None
+    try:
+        p, browser, context = await initialize_browser()
+        page = await context.new_page()
+        await page.goto(product_url, wait_until="domcontentloaded")
+        await page.wait_for_timeout(5000)
+
+        review_els = page.locator('[data-testid="comment-content-component"]')
+        count = await review_els.count()
+        print(f"[reviews] Total de reviews encontradas: {count}")
+
+        for i in range(count):
+            text = await review_els.nth(i).inner_text()
+            if text.strip():
+                reviews.append(text.strip())
+                #print(f"[reviews] Review {i + 1}: {text.strip()}")
+
+        await page.close()
+    except Exception as e:
+        print(f"[reviews] Erro geral: {e}")
+    finally:
+        if browser:
+            await browser.close()
+        if p:
+            await p.stop()
+
+    return reviews
+
+
 async def run_scraper(
     query: str,
     marketplaces: list[str],
@@ -177,46 +281,33 @@ async def run_scraper(
     all_results = []
 
     try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=False,  # 100% oculto e consome o mínimo de RAM
-                args=[
-                    "--headless=new " # Desativar isso aqui mantém o browser com janela visível
-                    "--disable-gpu",
-                    "--blink-settings=imagesEnabled=false", # Bloqueia imagens para poupar memória
-                    "--disable-blink-features=AutomationControlled", # Esconde que é um robô
-                ]
-            )
+        p, browser, context = await initialize_browser()
+
+        # Test if the marketplace is at dictionary
+        for mp in marketplaces:
+            mp_key = mp.lower()
+            if mp_key not in REFS:
+                print(f"  [!] Unknown marketplace: {mp_key}, skipping.")
+                continue
+
+            link = REFS[mp_key]
             
-            # Cria um contexto fingindo ser um navegador Windows normal
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                viewport={"width": 1920, "height": 1080}
-            )
+            # Gets the first tab
+            page = await context.new_page()
 
-            # Test if the marketplace is at dictionary
-            for mp in marketplaces:
-                mp_key = mp.lower()
-                if mp_key not in REFS:
-                    print(f"  [!] Unknown marketplace: {mp_key}, skipping.")
-                    continue
+            try:
+                results = await get_results(context, page, link, query, max_results)
+                print(f"  [{mp_key}] Collected {len(results)} valid listings")
+                all_results.extend(results)
+            except Exception as e:
+                print(f"  [{mp_key}] Scraper failed: {e}")
+                traceback.print_exc()
+            finally:
+                # Close the context window tab cleanly before moving to next site
+                await page.close()
 
-                link = REFS[mp_key]
-                
-                # Gets the first tab
-                page = await context.new_page()
-
-                try:
-                    results = await get_results(context, page, link, query, max_results)
-                    print(f"  [{mp_key}] Collected {len(results)} valid listings")
-                    all_results.extend(results)
-                except Exception as e:
-                    print(f"  [{mp_key}] Scraper failed: {e}")
-                finally:
-                    # Close the context window tab cleanly before moving to next site
-                    await page.close()
-
-            await browser.close()
+        await browser.close()
+        await p.stop()
     finally:
         # Guarantee SeleniumBase disconnects cleanly from memory
         subprocess.run(["taskkill", "/f", "/im", "chrome.exe"])
