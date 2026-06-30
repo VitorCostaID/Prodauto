@@ -25,6 +25,7 @@ sys.path.insert(0, str(SRC_PATH))
 
 try:
     from scraper import run_scraper as _run_scraper
+    from scraper import scrape_reviews as _scrape_reviews
 except ImportError as e:
     print(f"\n❌ Não foi possível importar scraper.py de {SRC_PATH}")
     print(f"   Erro: {e}\n")
@@ -70,107 +71,13 @@ async def scrape(body: ScrapeRequest):
 @app.post("/scrape-reviews")
 async def scrape_reviews(body: ReviewScrapeRequest):
     """
-    Coleta avaliações por estrela no Mercado Livre.
-
-    Fluxo:
-      1. Abre a página do produto
-      2. Clica em "Mostrar todas as opiniões"
-      3. Para cada estrela (5 a 1), filtra pelo dropdown e coleta N avaliações
+    Coleta avaliações por estrela.
+    Delega para scraper.py (headless via initialize_browser).
     """
-    if body.marketplace != "mercadolivre":
-        # Outros marketplaces serão implementados futuramente
-        return {"star_5": [], "star_4": [], "star_3": [], "star_2": [], "star_1": []}
-
-    from playwright.async_api import async_playwright
-    import subprocess, time
-
-    chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-    chrome_process = subprocess.Popen([
-        chrome_path,
-        "--remote-debugging-port=9222",
-        "--user-data-dir=C:\\chrome-debug-profile-reviews",
-        "--no-first-run",
-        "--no-default-browser-check",
-    ])
-    time.sleep(2)
-
-    reviews: dict[str, list[str]] = {
-        "star_5": [], "star_4": [], "star_3": [], "star_2": [], "star_1": []
-    }
-
-    star_option_ids = {
-        5: "dropdown-option-rating-5",
-        4: "dropdown-option-rating-4",
-        3: "dropdown-option-rating-3",
-        2: "dropdown-option-rating-2",
-        1: "dropdown-option-rating-1",
-    }
-
-    try:
-        async with async_playwright() as p:
-            browser = await p.chromium.connect_over_cdp("http://localhost:9222")
-            context = browser.contexts[0]
-            page = await context.new_page()
-
-            await page.goto(body.product_url, wait_until="domcontentloaded")
-            await page.wait_for_timeout(2000)
-
-            # Clica em "Mostrar todas as opiniões"
-            try:
-                see_more = page.locator('"#see-more"')
-                await see_more.wait_for(timeout=5000)
-                await see_more.click()
-                await page.wait_for_timeout(2000)
-            except Exception:
-                print("[reviews] Botão 'ver mais opiniões' não encontrado.")
-
-            # Para cada estrela
-            for star in [5, 4, 3, 2, 1]:
-                key = f"star_{star}"
-                try:
-                    # Localiza o botão do dropdown
-                    dropdown_btn = page.locator("#dropdown-button-rating")
-                    await dropdown_btn.scroll_into_view_if_needed()
-                    await dropdown_btn.wait_for(state="visible", timeout=5000)
-                    
-                    # CORREÇÃO: Usa force=True para ignorar overlays bloqueando o clique
-                    await dropdown_btn.click(force=True)
-                    await page.wait_for_timeout(1000)
-
-                    # Clica na opção de estrela correspondente
-                    option = page.locator(f"#dropdown-option-rating-{star}")
-                    await option.wait_for(state="visible", timeout=3000)
-                    await option.click(force=True) # Também forçado para garantir dentro do modal
-                    
-                    await page.wait_for_timeout(2000)
-
-                    # Coleta N avaliações
-                    review_els = page.locator("p.ui-review-capability-comments__comment__content")
-                    count = await review_els.count()
-                    collected = []
-                    for i in range(min(body.reviews_per_star, count)):
-                        text = await review_els.nth(i).inner_text()
-                        if text.strip():
-                            collected.append(text.strip())
-                    reviews[key] = collected
-                    print(f"[reviews] {star}★ — {len(collected)} avaliação(ões) coletada(s)")
-
-                except Exception as e:
-                    print(f"[reviews] Erro na estrela {star}: {e}")
-                    # Tenta clicar fora ou dar um refresh leve se o menu travar aberto em caso de erro
-                    try:
-                        await page.mouse.click(0, 0)
-                    except:
-                        pass
-
-            await page.close()
-            await browser.close()
-
-    except Exception as e:
-        print(f"[reviews] Erro geral: {e}")
-    finally:
-        chrome_process.terminate()
-
+    reviews = await _scrape_reviews(
+        product_url=body.product_url,
+        marketplace=body.marketplace,
+   )
     return reviews
 
 

@@ -124,6 +124,8 @@ async def generate_improvements(
         f"Com base nessas avaliações reais, liste de 3 a 6 pontos de melhoria "
         f"específicos e acionáveis para este produto. Seja objetivo e prático. "
         f"Responda em português brasileiro."
+        f"Envie somente a descrição, não adicione nenhuma informação introdutória"
+        f"ou adicional como 'Irei gerar sua descrição como um profissional de copywriting'. \n\n"
     )
     return await _call_ai(system, user)
 

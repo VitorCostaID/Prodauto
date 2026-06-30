@@ -8,3 +8,8 @@ node_modules
 
 # Node Build
 dist
+
+#Tests
+test_scraper.py
+test_reviews1.py
+test_reviews2.py

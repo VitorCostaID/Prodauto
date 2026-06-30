@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { Sparkles, ChevronDown, ChevronUp, AlertCircle, CheckCircle, Info, Image } from 'lucide-react'
+import { Sparkles, ChevronDown, ChevronUp, AlertCircle, CheckCircle, Info, Eye } from 'lucide-react'
 import { clsx } from 'clsx'
 import { api } from '@/lib/api'
 import { useSearchStore } from '@/store/searchStore'
@@ -13,6 +13,27 @@ import CostsPanel from '@/components/ui/CostsPanel'
 
 const formatBRL = (v: number | null | undefined) =>
   v == null ? '—' : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
+function renderMarkdown(text: string): string {
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+  return escaped
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`(.+?)`/g, '<code class="bg-gray-200 px-1 rounded text-gray-700 text-[11px]">$1</code>')
+    .replace(/\n/g, '<br />')
+}
+
+function MarkdownBlock({ text, className }: { text: string; className?: string }) {
+  return (
+    <p
+      className={className}
+      dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }}
+    />
+  )
+}
 
 const PRICE_MODES: { key: PriceMode; label: string; desc: string }[] = [
   {
@@ -41,6 +62,7 @@ export default function PerfectProductPage() {
   const [result, setResult] = useState<PerfectProductResponse | null>(perfectProductResult)
   const [costsOpen, setCostsOpen] = useState(false)
   const [reviewsPerStar, setReviewsPerStar] = useState(1)
+  const [reviewsOpen, setReviewsOpen] = useState(false)
 
   useEffect(() => {
     if (perfectProductResult && !result) {
@@ -84,22 +106,6 @@ export default function PerfectProductPage() {
       const cached = { ...data, _resultIds: ids } as PerfectProductResponse & { _resultIds: string }
       setResult(cached)
       setPerfectProductResult(cached)
-    },
-  })
-
-  const generateImageMutation = useMutation({
-    mutationFn: async () => {
-      const { data } = await api.post<{ image_url: string | null }>('/produto-perfeito/gerar-imagem', {
-        query,
-      })
-      return data
-    },
-    onSuccess: (data) => {
-      if (data.image_url) {
-        const updated = { ...result!, ai_image_url: data.image_url }
-        setResult(updated)
-        setPerfectProductResult(updated)
-      }
     },
   })
 
@@ -308,31 +314,18 @@ export default function PerfectProductPage() {
               {generateMutation.isPending ? 'Atualizando…' : '↻ Regenerar análise'}
             </button>
 
-            {/* AI image placeholder */}
+            {/* ── Imagem do Produto — Em breve ─────────────────────── */}
+            {/* PARA ATIVAR: substitua este bloco pelo componente de geração de imagem.
+                Adicione novamente o import de { Image } do lucide-react,
+                o generateImageMutation, e o botão/preview da imagem. */}
             <div className="bg-white rounded-2xl border border-gray-200 p-5">
               <h2 className="text-sm font-semibold text-gray-700 mb-3">Imagem do Produto</h2>
-              {result.ai_image_url ? (
-                <img src={result.ai_image_url} alt={result.query}
-                  className="w-full max-w-sm mx-auto rounded-xl" />
-              ) : (
-                <div className="w-full h-40 rounded-xl bg-gray-100 flex flex-col items-center justify-center gap-3">
-                  <p className="text-xs text-gray-400 text-center px-4">
-                    {result.ai_ready
-                      ? 'Geração de imagem não configurada'
-                      : 'Configure a IA no arquivo .env para gerar imagens'}
-                  </p>
-                  <button
-                    onClick={() => generateImageMutation.mutate()}
-                    disabled={generateMutation.isPending || generateImageMutation.isPending}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r
-                               from-purple-600 to-pink-500 text-white text-xs font-semibold
-                               hover:from-purple-700 hover:to-pink-600 disabled:opacity-50 transition-all"
-                  >
-                    <Image size={14} />
-                    {generateImageMutation.isPending ? 'Gerando imagem…' : 'Gerar Imagem IA'}
-                  </button>
+              <div className="w-full h-28 rounded-xl bg-gray-50 flex items-center justify-center">
+                <div className="text-center">
+                  <p className="text-sm font-medium text-gray-400">Em breve</p>
+                  <p className="text-[10px] text-gray-300 mt-1">Geração de imagem por IA será disponibilizada em uma versão futura.</p>
                 </div>
-              )}
+              </div>
             </div>
 
             {/* Per-marketplace cards */}
@@ -355,9 +348,10 @@ export default function PerfectProductPage() {
             <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-3">
               <h2 className="text-sm font-semibold text-gray-700">Descrição Profissional</h2>
               {result.ai_description ? (
-                <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
-                  {result.ai_description}
-                </p>
+                <MarkdownBlock
+                  text={result.ai_description}
+                  className="text-sm text-gray-700 leading-relaxed"
+                />
               ) : (
                 <AiPlaceholder />
               )}
@@ -375,7 +369,7 @@ export default function PerfectProductPage() {
               )}
             </div>
 
-            {/* Reviews + AI improvements */}
+            {/* ── Avaliações & Melhorias ──────────────────────────── */}
             <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-4">
               <div className="flex items-start justify-between">
                 <h2 className="text-sm font-semibold text-gray-700">Avaliações & Melhorias</h2>
@@ -387,38 +381,54 @@ export default function PerfectProductPage() {
                 </div>
               </div>
 
-              {/* Reviews by star */}
-              <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
-                {([5, 4, 3, 2, 1] as const).map((star) => {
-                  const key = `star_${star}` as keyof typeof result.reviews
-                  const texts = result.reviews[key]
-                  return (
-                    <div key={star} className="bg-gray-50 rounded-xl p-3">
-                      <p className="text-xs font-semibold text-gray-600 mb-2">
-                        {'★'.repeat(star)}{'☆'.repeat(5 - star)}
-                      </p>
-                      {texts.length > 0
-                        ? texts.map((t, i) => (
-                            <p key={i} className="text-xs text-gray-600 leading-relaxed">{t}</p>
-                          ))
-                        : <p className="text-xs text-gray-400 italic">Nenhuma avaliação coletada</p>
-                      }
-                    </div>
-                  )
-                })}
-              </div>
-
-              {/* AI improvements */}
+              {/* AI improvements — shown first */}
               {result.ai_improvements ? (
                 <div className="bg-brand-50 rounded-xl p-4">
                   <p className="text-xs font-semibold text-brand-700 mb-2">Sugestões de Melhoria (IA)</p>
-                  <p className="text-sm text-brand-800 leading-relaxed whitespace-pre-wrap">
-                    {result.ai_improvements}
-                  </p>
+                  <MarkdownBlock
+                    text={result.ai_improvements}
+                    className="text-sm text-brand-800 leading-relaxed"
+                  />
                 </div>
               ) : (
                 <AiPlaceholder label="Sugestões de melhoria" />
               )}
+
+              {/* Reviews — collapsed by default */}
+              <div className="border-t border-gray-100 pt-3">
+                <button
+                  onClick={() => setReviewsOpen((o) => !o)}
+                  className="flex items-center gap-2 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+                >
+                  <Eye size={14} />
+                  <span>{reviewsOpen ? 'Ocultar avaliações' : 'Visualizar avaliações'}</span>
+                  {reviewsOpen
+                    ? <ChevronUp size={14} />
+                    : <ChevronDown size={14} />}
+                </button>
+
+                {reviewsOpen && (
+                  <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 mt-3">
+                    {([5, 4, 3, 2, 1] as const).map((star) => {
+                      const key = `star_${star}` as keyof typeof result.reviews
+                      const texts = result.reviews[key]
+                      return (
+                        <div key={star} className="bg-gray-50 rounded-xl p-3">
+                          <p className="text-xs font-semibold text-gray-600 mb-2">
+                            {'★'.repeat(star)}{'☆'.repeat(5 - star)}
+                          </p>
+                          {texts.length > 0
+                            ? texts.map((t, i) => (
+                                <p key={i} className="text-xs text-gray-600 leading-relaxed">{t}</p>
+                              ))
+                            : <p className="text-xs text-gray-400 italic">Nenhuma avaliação coletada</p>
+                          }
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
 
           </div>

@@ -63,8 +63,8 @@ class MarketplaceCosts(BaseModel):
 
 SUPPORTED_MARKETPLACES = [
     "mercadolivre",
-    "shopee",
-    "magazineluiza",
+    # "shopee",           # Desativado — para reativar, descomente
+    # "magazineluiza",    # Desativado — para reativar, descomente
     "amazon",
 ]
 

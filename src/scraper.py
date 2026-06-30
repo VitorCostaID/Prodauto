@@ -235,6 +235,44 @@ async def get_results(driver, page, references: list, search: str, max_results: 
 
 ### ============ MAIN SCRAPER ============ ###
 
+async def scrape_reviews(
+    product_url: str,
+    marketplace: str,
+) -> list[str]:
+    if marketplace != "mercadolivre":
+        return []
+
+    reviews: list[str] = []
+    p = None
+    browser = None
+    try:
+        p, browser, context = await initialize_browser()
+        page = await context.new_page()
+        await page.goto(product_url, wait_until="domcontentloaded")
+        await page.wait_for_timeout(5000)
+
+        review_els = page.locator('[data-testid="comment-content-component"]')
+        count = await review_els.count()
+        print(f"[reviews] Total de reviews encontradas: {count}")
+
+        for i in range(count):
+            text = await review_els.nth(i).inner_text()
+            if text.strip():
+                reviews.append(text.strip())
+                #print(f"[reviews] Review {i + 1}: {text.strip()}")
+
+        await page.close()
+    except Exception as e:
+        print(f"[reviews] Erro geral: {e}")
+    finally:
+        if browser:
+            await browser.close()
+        if p:
+            await p.stop()
+
+    return reviews
+
+
 async def run_scraper(
     query: str,
     marketplaces: list[str],
