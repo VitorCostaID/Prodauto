@@ -90,4 +90,4 @@ if __name__ == "__main__":
     print("🔍 Servidor de scraping iniciando em http://localhost:8001")
     print("   Health check: http://localhost:8001/health")
     print("   Pressione Ctrl+C para parar\n")
-    uvicorn.run(app, host="127.0.0.1", port=8001, loop="asyncio")
+    uvicorn.run(app, host="0.0.0.0", port=8001, loop="asyncio")

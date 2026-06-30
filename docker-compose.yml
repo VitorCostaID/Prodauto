@@ -1,53 +1,37 @@
+version: '3.8'
 services:
-  db:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"          # only exposed locally; Nginx does not proxy this
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+  # db:
+  #  image: postgres:16-alpine
+  #  restart: unless-stopped
+  #  environment:
+  #    POSTGRES_USER: ${POSTGRES_USER}
+  #    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  #     POSTGRES_DB: ${POSTGRES_DB}
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"          # only exposed locally; Nginx does not proxy this
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
 
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    env_file: .env
-    volumes:
-      - ./backend:/app          # hot-reload in dev; remove in prod
-      - ./src:/app/scraper_src  # mounts your existing scraper
+  backend-api:
+    build: ./src/backend
+    container_name: prodauto-backend
+    ports:
+      - "8000:8000" # Porta que você acessa do seu PC e mapeia para a Vercel
+    environment:
+      - SCRAPER_API_URL=http://scraper-service:8001 # O backend acha o scraper por aqui!
+    restart: always
     depends_on:
-      db:
-        condition: service_healthy
-    ports:
-      - "8000:8000"
-    command: >
-      uvicorn app.main:app
-      --host 0.0.0.0
-      --port 8000
-      --reload
+      - scraper-service
 
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules        # prevent host node_modules from overriding
-    ports:
-      - "5173:5173"
-    environment:
-      - VITE_API_URL=http://localhost:8000
-
-volumes:
-  postgres_data:
+  scraper-service:
+    build: ./src/scraper
+    container_name: prodauto-scraper
+    # Se você quiser testar as rotas do scraper direto pelo seu PC, descomente a linha abaixo:
+    # ports:
+    #   - "8001:8001"
+    restart: always

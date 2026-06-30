@@ -1,0 +1,5 @@
+# Scraping
+beautifulsoup4==4.12.
+playwright==1.60.0
+seleniumbase==4.50.1
+requests==2.32.3
